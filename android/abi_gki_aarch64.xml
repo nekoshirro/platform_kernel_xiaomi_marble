@@ -5115,6 +5115,7 @@
       <elf-symbol name='snd_card_disconnect' type='func-type' binding='global-binding' visibility='default-visibility' is-defined='yes' crc='0xe26c968c'/>
       <elf-symbol name='snd_card_free' type='func-type' binding='global-binding' visibility='default-visibility' is-defined='yes' crc='0x9348463f'/>
       <elf-symbol name='snd_card_new' type='func-type' binding='global-binding' visibility='default-visibility' is-defined='yes' crc='0x5d885b0f'/>
+      <elf-symbol name='snd_card_ref' type='func-type' binding='global-binding' visibility='default-visibility' is-defined='yes' crc='0x743fda48'/>
       <elf-symbol name='snd_card_register' type='func-type' binding='global-binding' visibility='default-visibility' is-defined='yes' crc='0x1f80a2eb'/>
       <elf-symbol name='snd_card_rw_proc_new' type='func-type' binding='global-binding' visibility='default-visibility' is-defined='yes' crc='0x8805aaf7'/>
       <elf-symbol name='snd_component_add' type='func-type' binding='global-binding' visibility='default-visibility' is-defined='yes' crc='0x14e43f0d'/>
@@ -144397,6 +144398,10 @@
         <parameter type-id='95e97e5e' name='extra_size' filepath='sound/core/init.c' line='162' column='1'/>
         <parameter type-id='63cbc127' name='card_ret' filepath='sound/core/init.c' line='163' column='1'/>
         <return type-id='95e97e5e'/>
+      </function-decl>
+      <function-decl name='snd_card_ref' mangled-name='snd_card_ref' filepath='sound/core/init.c' line='268' column='1' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='snd_card_ref'>
+        <parameter type-id='95e97e5e' name='idx' filepath='sound/core/init.c' line='268' column='1'/>
+        <return type-id='52704eb7'/>
       </function-decl>
       <function-decl name='snd_card_register' mangled-name='snd_card_register' filepath='sound/core/init.c' line='746' column='1' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='snd_card_register'>
         <parameter type-id='52704eb7' name='card' filepath='sound/core/init.c' line='746' column='1'/>
