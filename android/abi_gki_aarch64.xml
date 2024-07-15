@@ -26473,60 +26473,60 @@
           <var-decl name='arg_size' type-id='4d79ed19' visibility='default' filepath='include/linux/bpf.h' line='528' column='1'/>
         </data-member>
       </class-decl>
-      <class-decl name='dst_ops' size-in-bits='1536' is-struct='yes' visibility='default' filepath='include/net/dst_ops.h' line='15' column='1' id='32358857'>
+      <class-decl name='dst_ops' size-in-bits='1536' is-struct='yes' visibility='default' filepath='include/net/dst_ops.h' line='25' column='1' id='32358857'>
         <data-member access='public' layout-offset-in-bits='0'>
-          <var-decl name='family' type-id='8efea9e5' visibility='default' filepath='include/net/dst_ops.h' line='16' column='1'/>
+          <var-decl name='family' type-id='8efea9e5' visibility='default' filepath='include/net/dst_ops.h' line='26' column='1'/>
         </data-member>
         <data-member access='public' layout-offset-in-bits='32'>
-          <var-decl name='gc_thresh' type-id='f0981eeb' visibility='default' filepath='include/net/dst_ops.h' line='17' column='1'/>
+          <var-decl name='gc_thresh' type-id='f0981eeb' visibility='default' filepath='include/net/dst_ops.h' line='27' column='1'/>
         </data-member>
         <data-member access='public' layout-offset-in-bits='64'>
-          <var-decl name='gc' type-id='79efa3b3' visibility='default' filepath='include/net/dst_ops.h' line='19' column='1'/>
+          <var-decl name='gc' type-id='79efa3b3' visibility='default' filepath='include/net/dst_ops.h' line='29' column='1'/>
         </data-member>
         <data-member access='public' layout-offset-in-bits='128'>
-          <var-decl name='check' type-id='d7c38177' visibility='default' filepath='include/net/dst_ops.h' line='20' column='1'/>
+          <var-decl name='check' type-id='d7c38177' visibility='default' filepath='include/net/dst_ops.h' line='30' column='1'/>
         </data-member>
         <data-member access='public' layout-offset-in-bits='192'>
-          <var-decl name='default_advmss' type-id='34c443b7' visibility='default' filepath='include/net/dst_ops.h' line='21' column='1'/>
+          <var-decl name='default_advmss' type-id='34c443b7' visibility='default' filepath='include/net/dst_ops.h' line='31' column='1'/>
         </data-member>
         <data-member access='public' layout-offset-in-bits='256'>
-          <var-decl name='mtu' type-id='34c443b7' visibility='default' filepath='include/net/dst_ops.h' line='22' column='1'/>
+          <var-decl name='mtu' type-id='34c443b7' visibility='default' filepath='include/net/dst_ops.h' line='32' column='1'/>
         </data-member>
         <data-member access='public' layout-offset-in-bits='320'>
-          <var-decl name='cow_metrics' type-id='9917918c' visibility='default' filepath='include/net/dst_ops.h' line='23' column='1'/>
+          <var-decl name='cow_metrics' type-id='9917918c' visibility='default' filepath='include/net/dst_ops.h' line='33' column='1'/>
         </data-member>
         <data-member access='public' layout-offset-in-bits='384'>
-          <var-decl name='destroy' type-id='d6965222' visibility='default' filepath='include/net/dst_ops.h' line='24' column='1'/>
+          <var-decl name='destroy' type-id='d6965222' visibility='default' filepath='include/net/dst_ops.h' line='34' column='1'/>
         </data-member>
         <data-member access='public' layout-offset-in-bits='448'>
-          <var-decl name='ifdown' type-id='ce828d9f' visibility='default' filepath='include/net/dst_ops.h' line='25' column='1'/>
+          <var-decl name='ifdown' type-id='ce828d9f' visibility='default' filepath='include/net/dst_ops.h' line='35' column='1'/>
         </data-member>
         <data-member access='public' layout-offset-in-bits='512'>
-          <var-decl name='negative_advice' type-id='3ce3447a' visibility='default' filepath='include/net/dst_ops.h' line='27' column='1'/>
+          <var-decl name='negative_advice' type-id='3ce3447a' visibility='default' filepath='include/net/dst_ops.h' line='37' column='1'/>
         </data-member>
         <data-member access='public' layout-offset-in-bits='576'>
-          <var-decl name='link_failure' type-id='0ef96694' visibility='default' filepath='include/net/dst_ops.h' line='28' column='1'/>
+          <var-decl name='link_failure' type-id='0ef96694' visibility='default' filepath='include/net/dst_ops.h' line='38' column='1'/>
         </data-member>
         <data-member access='public' layout-offset-in-bits='640'>
-          <var-decl name='update_pmtu' type-id='79b8da5c' visibility='default' filepath='include/net/dst_ops.h' line='29' column='1'/>
+          <var-decl name='update_pmtu' type-id='79b8da5c' visibility='default' filepath='include/net/dst_ops.h' line='39' column='1'/>
         </data-member>
         <data-member access='public' layout-offset-in-bits='704'>
-          <var-decl name='redirect' type-id='9f403612' visibility='default' filepath='include/net/dst_ops.h' line='32' column='1'/>
+          <var-decl name='redirect' type-id='9f403612' visibility='default' filepath='include/net/dst_ops.h' line='42' column='1'/>
         </data-member>
         <data-member access='public' layout-offset-in-bits='768'>
-          <var-decl name='local_out' type-id='0023218e' visibility='default' filepath='include/net/dst_ops.h' line='34' column='1'/>
+          <var-decl name='local_out' type-id='0023218e' visibility='default' filepath='include/net/dst_ops.h' line='44' column='1'/>
         </data-member>
         <data-member access='public' layout-offset-in-bits='832'>
-          <var-decl name='neigh_lookup' type-id='950eceb8' visibility='default' filepath='include/net/dst_ops.h' line='35' column='1'/>
+          <var-decl name='neigh_lookup' type-id='950eceb8' visibility='default' filepath='include/net/dst_ops.h' line='45' column='1'/>
         </data-member>
         <data-member access='public' layout-offset-in-bits='896'>
-          <var-decl name='confirm_neigh' type-id='7e5b15cf' visibility='default' filepath='include/net/dst_ops.h' line='38' column='1'/>
+          <var-decl name='confirm_neigh' type-id='7e5b15cf' visibility='default' filepath='include/net/dst_ops.h' line='48' column='1'/>
         </data-member>
         <data-member access='public' layout-offset-in-bits='960'>
-          <var-decl name='kmem_cachep' type-id='f3b4aca8' visibility='default' filepath='include/net/dst_ops.h' line='41' column='1'/>
+          <var-decl name='kmem_cachep' type-id='f3b4aca8' visibility='default' filepath='include/net/dst_ops.h' line='51' column='1'/>
         </data-member>
         <data-member access='public' layout-offset-in-bits='1024'>
-          <var-decl name='pcpuc_entries' type-id='b92c8d0d' visibility='default' filepath='include/net/dst_ops.h' line='43' column='1'/>
+          <var-decl name='pcpuc_entries' type-id='b92c8d0d' visibility='default' filepath='include/net/dst_ops.h' line='53' column='1'/>
         </data-member>
       </class-decl>
       <pointer-type-def type-id='928221d2' size-in-bits='64' id='323d93c1'/>
@@ -50129,12 +50129,12 @@
       </class-decl>
       <pointer-type-def type-id='3e1d184a' size-in-bits='64' id='6aee814c'/>
       <pointer-type-def type-id='74e7a035' size-in-bits='64' id='6af64a09'/>
-      <class-decl name='uncached_list' size-in-bits='192' is-struct='yes' visibility='default' filepath='net/ipv4/route.c' line='1545' column='1' id='6b1203e5'>
+      <class-decl name='uncached_list' size-in-bits='192' is-struct='yes' visibility='default' filepath='net/ipv4/route.c' line='1539' column='1' id='6b1203e5'>
         <data-member access='public' layout-offset-in-bits='0'>
-          <var-decl name='lock' type-id='fb4018a0' visibility='default' filepath='net/ipv4/route.c' line='1546' column='1'/>
+          <var-decl name='lock' type-id='fb4018a0' visibility='default' filepath='net/ipv4/route.c' line='1540' column='1'/>
         </data-member>
         <data-member access='public' layout-offset-in-bits='64'>
-          <var-decl name='head' type-id='72f469ec' visibility='default' filepath='net/ipv4/route.c' line='1547' column='1'/>
+          <var-decl name='head' type-id='72f469ec' visibility='default' filepath='net/ipv4/route.c' line='1541' column='1'/>
         </data-member>
       </class-decl>
       <pointer-type-def type-id='bfbf7968' size-in-bits='64' id='6b1642ae'/>
@@ -117835,13 +117835,13 @@
         <parameter type-id='fea9c20b' name='addr' filepath='net/ipv6/addrconf_core.c' line='38' column='1'/>
         <return type-id='95e97e5e'/>
       </function-decl>
-      <function-decl name='__irq_alloc_descs' mangled-name='__irq_alloc_descs' filepath='kernel/irq/irqdesc.c' line='784' column='1' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='__irq_alloc_descs'>
-        <parameter type-id='95e97e5e' name='irq' filepath='kernel/irq/irqdesc.c' line='784' column='1'/>
-        <parameter type-id='f0981eeb' name='from' filepath='kernel/irq/irqdesc.c' line='784' column='1'/>
-        <parameter type-id='f0981eeb' name='cnt' filepath='kernel/irq/irqdesc.c' line='784' column='1'/>
-        <parameter type-id='95e97e5e' name='node' filepath='kernel/irq/irqdesc.c' line='784' column='1'/>
-        <parameter type-id='2730d015' name='owner' filepath='kernel/irq/irqdesc.c' line='785' column='1'/>
-        <parameter type-id='07779cd9' name='affinity' filepath='kernel/irq/irqdesc.c' line='785' column='1'/>
+      <function-decl name='__irq_alloc_descs' mangled-name='__irq_alloc_descs' filepath='kernel/irq/irqdesc.c' line='787' column='1' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='__irq_alloc_descs'>
+        <parameter type-id='95e97e5e' name='irq' filepath='kernel/irq/irqdesc.c' line='787' column='1'/>
+        <parameter type-id='f0981eeb' name='from' filepath='kernel/irq/irqdesc.c' line='787' column='1'/>
+        <parameter type-id='f0981eeb' name='cnt' filepath='kernel/irq/irqdesc.c' line='787' column='1'/>
+        <parameter type-id='95e97e5e' name='node' filepath='kernel/irq/irqdesc.c' line='787' column='1'/>
+        <parameter type-id='2730d015' name='owner' filepath='kernel/irq/irqdesc.c' line='788' column='1'/>
+        <parameter type-id='07779cd9' name='affinity' filepath='kernel/irq/irqdesc.c' line='788' column='1'/>
         <return type-id='95e97e5e'/>
       </function-decl>
       <function-decl name='__irq_alloc_domain_generic_chips' mangled-name='__irq_alloc_domain_generic_chips' filepath='kernel/irq/generic-chip.c' line='283' column='1' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='__irq_alloc_domain_generic_chips'>
@@ -135470,10 +135470,10 @@
         <parameter type-id='f0981eeb' name='addr_type' filepath='net/ipv4/netfilter.c' line='20' column='1'/>
         <return type-id='95e97e5e'/>
       </function-decl>
-      <function-decl name='ip_route_output_flow' mangled-name='ip_route_output_flow' filepath='net/ipv4/route.c' line='2785' column='1' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='ip_route_output_flow'>
-        <parameter type-id='a2bff676' name='net' filepath='net/ipv4/route.c' line='2785' column='1'/>
-        <parameter type-id='a198549e' name='flp4' filepath='net/ipv4/route.c' line='2785' column='1'/>
-        <parameter type-id='78e7cf52' name='sk' filepath='net/ipv4/route.c' line='2786' column='1'/>
+      <function-decl name='ip_route_output_flow' mangled-name='ip_route_output_flow' filepath='net/ipv4/route.c' line='2779' column='1' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='ip_route_output_flow'>
+        <parameter type-id='a2bff676' name='net' filepath='net/ipv4/route.c' line='2779' column='1'/>
+        <parameter type-id='a198549e' name='flp4' filepath='net/ipv4/route.c' line='2779' column='1'/>
+        <parameter type-id='78e7cf52' name='sk' filepath='net/ipv4/route.c' line='2780' column='1'/>
         <return type-id='c8f5869f'/>
       </function-decl>
       <function-decl name='ip_send_check' mangled-name='ip_send_check' filepath='net/ipv4/ip_output.c' line='92' column='1' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='ip_send_check'>
@@ -136334,13 +136334,13 @@
       </function-decl>
       <var-decl name='ksoftirqd' type-id='f23e2572' mangled-name='ksoftirqd' visibility='default' filepath='kernel/softirq.c' line='60' column='1' elf-symbol-id='ksoftirqd'/>
       <var-decl name='kstat' type-id='153750ef' mangled-name='kstat' visibility='default' filepath='kernel/sched/core.c' line='4177' column='1' elf-symbol-id='kstat'/>
-      <function-decl name='kstat_irqs_cpu' mangled-name='kstat_irqs_cpu' filepath='kernel/irq/irqdesc.c' line='977' column='1' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='kstat_irqs_cpu'>
-        <parameter type-id='f0981eeb' name='irq' filepath='kernel/irq/irqdesc.c' line='977' column='1'/>
-        <parameter type-id='95e97e5e' name='cpu' filepath='kernel/irq/irqdesc.c' line='977' column='1'/>
+      <function-decl name='kstat_irqs_cpu' mangled-name='kstat_irqs_cpu' filepath='kernel/irq/irqdesc.c' line='980' column='1' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='kstat_irqs_cpu'>
+        <parameter type-id='f0981eeb' name='irq' filepath='kernel/irq/irqdesc.c' line='980' column='1'/>
+        <parameter type-id='95e97e5e' name='cpu' filepath='kernel/irq/irqdesc.c' line='980' column='1'/>
         <return type-id='f0981eeb'/>
       </function-decl>
-      <function-decl name='kstat_irqs_usr' mangled-name='kstat_irqs_usr' filepath='kernel/irq/irqdesc.c' line='1026' column='1' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='kstat_irqs_usr'>
-        <parameter type-id='f0981eeb' name='irq' filepath='kernel/irq/irqdesc.c' line='1026' column='1'/>
+      <function-decl name='kstat_irqs_usr' mangled-name='kstat_irqs_usr' filepath='kernel/irq/irqdesc.c' line='1029' column='1' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='kstat_irqs_usr'>
+        <parameter type-id='f0981eeb' name='irq' filepath='kernel/irq/irqdesc.c' line='1029' column='1'/>
         <return type-id='f0981eeb'/>
       </function-decl>
       <function-decl name='kstrdup' mangled-name='kstrdup' filepath='mm/util.c' line='55' column='1' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='kstrdup'>
