@@ -502,6 +502,7 @@ LDFLAGS_MODULE  =
 CFLAGS_KERNEL	=
 AFLAGS_KERNEL	=
 LDFLAGS_vmlinux =
+LDFLAGS_vmlinux += --lto-O2
 
 # Use USERINCLUDE when you must reference the UAPI directories only.
 USERINCLUDE    := \
