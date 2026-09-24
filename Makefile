@@ -967,6 +967,9 @@ else
 CC_FLAGS_LTO	:= -flto
 endif
 
+LD_LTO_JOBS     ?= $(shell nproc --all 2>/dev/null | awk '{n=int($$1/2); if (n < 1) n=1; print n}')
+KBUILD_LDFLAGS  += --lto-jobs=$(LD_LTO_JOBS)
+
 ifeq ($(SRCARCH),x86)
 # TODO(b/182572011): Revert workaround for compiler / linker bug.
 CC_FLAGS_LTO	+= -fvisibility=hidden
