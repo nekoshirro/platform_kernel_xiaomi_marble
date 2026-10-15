@@ -679,6 +679,11 @@ static bool check_for_block(struct wakeup_source *ws)
  */
 static void wakeup_source_report_event(struct wakeup_source *ws, bool hard)
 {
+#ifdef CONFIG_BOEFFLA_WL_BLOCKER
+	/* AP: a wakelock on the blocker list is neither counted nor activated */
+	if (check_for_block(ws))
+		return;
+#endif
 	ws->event_count++;
 	/* This is racy, but the counter is approximate anyway. */
 	if (events_check_enabled)
@@ -689,20 +694,6 @@ static void wakeup_source_report_event(struct wakeup_source *ws, bool hard)
 
 	if (hard)
 		pm_system_wakeup();
-#ifdef CONFIG_BOEFFLA_WL_BLOCKER
-	if (!check_for_block(ws))	// AP: check if wakelock is on wakelock blocker list
-	{
-#endif
-		ws->event_count++;
-		/* This is racy, but the counter is approximate anyway. */
-		if (events_check_enabled)
-			ws->wakeup_count++;
-
-		if (!ws->active)
-			wakeup_source_activate(ws);
-#ifdef CONFIG_BOEFFLA_WL_BLOCKER
-	}
-#endif
 }
 
 /**
@@ -991,13 +982,13 @@ void pm_print_active_wakeup_sources(void)
 	srcuidx = srcu_read_lock(&wakeup_srcu);
 	list_for_each_entry_rcu_locked(ws, &wakeup_sources, entry) {
 		if (ws->active) {
+#ifdef CONFIG_BOEFFLA_WL_BLOCKER
+			/* AP: blocked wakelocks do not count as active */
+			if (check_for_block(ws))
+				continue;
+#endif
 			pm_pr_dbg("active wakeup source: %s\n", ws->name);
 			active = 1;
-			pr_info("active wakeup source: %s\n", ws->name);
-#ifdef CONFIG_BOEFFLA_WL_BLOCKER
-			if (!check_for_block(ws))	// AP: check if wakelock is on wakelock blocker list
-#endif
-				active = 1;
 		} else if (!active &&
 			   (!last_activity_ws ||
 			    ktime_to_ns(ws->last_time) >
