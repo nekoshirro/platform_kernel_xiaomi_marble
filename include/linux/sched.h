@@ -497,37 +497,10 @@ struct sched_entity {
 	struct sched_avg		avg;
 #endif
 
-#ifdef CONFIG_SCHED_BORE
-	ANDROID_KABI_USE(1, u64 burst_time);
-	_ANDROID_KABI_REPLACE(_ANDROID_KABI_RESERVE(2),
-		struct {
-			u16 prev_burst_penalty;
-			u16 curr_burst_penalty;
-			u16 burst_penalty;
-			u8 burst_score;
-		}
-	);
-	/*
-	 * BORE 7.0.0 (upstream: separate subtree/group burst caches, se
-	 * slots 3/4) - not ported to the se slots: the cached-penalty
-	 * inheritance scheme was reworked into sched_burst_inherit_type
-	 * with a live penalty read, which needs no se storage. Kept as
-	 * reserve so the KMI stays GKI-clean.
-	 */
-	ANDROID_KABI_RESERVE(3);
-	ANDROID_KABI_RESERVE(4);
-#else // CONFIG_SCHED_BORE
 	ANDROID_KABI_RESERVE(1);
 	ANDROID_KABI_RESERVE(2);
 	ANDROID_KABI_RESERVE(3);
 	ANDROID_KABI_RESERVE(4);
-#endif // CONFIG_SCHED_BORE
-
-	/* EEVDF fields — appended at end to preserve KMI */
-	u64				deadline;
-	u64				min_deadline;
-	s64				vlag;
-	u64				slice;
 };
 
 struct sched_rt_entity {
@@ -998,8 +971,8 @@ struct task_struct {
 	struct nameidata		*nameidata;
 
 #ifdef CONFIG_SYSVIPC
-	//struct sysv_sem			sysvsem;
-	//struct sysv_shm			sysvshm;
+	struct sysv_sem			sysvsem;
+	struct sysv_shm			sysvshm;
 #endif
 #ifdef CONFIG_DETECT_HUNG_TASK
 	unsigned long			last_switch_count;
@@ -1421,44 +1394,12 @@ struct task_struct {
 		unsigned	user_dumpable:1;
 		});
 
-	/*
-	 * Appended in a reserved slot to preserve every offset above (KMI).
-	 * BORE 6.8.0 protect_slice_lv equivalent: set while the task sleeps
-	 * in futex_wait_queue_me(), read by place_entity() to keep the full
-	 * deadline window for futex waiters (binder/GPU fence waiters).
-	 */
-	ANDROID_KABI_USE(3, bool	futex_waiting);
-
-#ifdef CONFIG_SCHED_BORE
-	/*
-	 * BORE 7.0.0 sleep credit: the kernel timestamp the task last went
-	 * to sleep, consumed on the next wakeup to shorten its deadline by
-	 * the capped sleep duration. Upstream 7.0.0 carries it inside
-	 * struct bore_ctx (credit_sleep); it lives here in a KABI slot so
-	 * the GKI KMI is untouched.
-	 */
-	ANDROID_KABI_USE(4, u64 credit_sleep);
-
-	/*
-	 * BORE 7.0.0 stop_update: set while reweight_task_by_prio() is
-	 * inside reweight_task() so the update_curr() that runs there
-	 * does not recurse back into update_curr_bore(). Upstream
-	 * carries it in struct bore_ctx; KABI slot keeps the KMI.
-	 */
-	ANDROID_KABI_USE(5, bool stop_bore_update);
-#else // CONFIG_SCHED_BORE
+	ANDROID_KABI_RESERVE(3);
 	ANDROID_KABI_RESERVE(4);
 	ANDROID_KABI_RESERVE(5);
-#endif // CONFIG_SCHED_BORE
-
-#ifdef CONFIG_SYSVIPC
-	ANDROID_KABI_USE(6, struct sysv_sem sysvsem);
-	_ANDROID_KABI_REPLACE(ANDROID_KABI_RESERVE(7); ANDROID_KABI_RESERVE(8), struct sysv_shm sysvshm);
-#else
 	ANDROID_KABI_RESERVE(6);
 	ANDROID_KABI_RESERVE(7);
 	ANDROID_KABI_RESERVE(8);
-#endif
 
 	/*
 	 * New fields for task_struct should be added above here, so that
