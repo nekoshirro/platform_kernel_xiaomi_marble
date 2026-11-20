@@ -480,6 +480,7 @@
 #define NON_HBOOST_MAX_VMAX_MV			4000
 #define FIFO_EMPTY_THRESH_RATIO_NUM		45
 #define FIFO_EMPTY_THRESH_RATIO_DEN		100
+#define FIFO_PLAY_STOP_DELAY			9
 /* below definitions are only for HAP525_HV */
 #define MMAP_NUM_BYTES				2048
 #define MMAP_FIFO_MIN_SIZE			640
@@ -781,7 +782,6 @@ struct haptics_chip {
 	struct haptics_mmap		mmap;
 	const struct fifo_hw_info	*fifo_info;
 	struct dentry			*debugfs_dir;
-	struct delayed_work		stop_work;
 	struct regulator_dev		*swr_slave_rdev;
 	struct nvmem_cell		*cl_brake_nvmem;
 	struct nvmem_device		*hap_cfg_nvmem;
@@ -789,6 +789,8 @@ struct haptics_chip {
 	struct class			hap_class;
 	struct regulator		*hpwr_vreg;
 	struct hrtimer			hbst_off_timer;
+	struct hrtimer			dph_off_timer;
+	bool				hboost_quick_off;
 	struct notifier_block		hboost_nb;
 	struct notifier_block		lpass_ssr_nb;
 	struct mutex			vmax_lock;
@@ -2609,7 +2611,7 @@ static int haptics_set_fifo(struct haptics_chip *chip, struct fifo_cfg *fifo)
 	return 0;
 }
 
-static int haptics_load_constant_effect(struct haptics_chip *chip, u8 amplitude)
+static int haptics_load_constant_effect(struct haptics_chip *chip, u8 amplitude, u32 length_us)
 {
 	struct haptics_play_info *play = &chip->play;
 	u32 hdrm_mv, vmax_mv = chip->config.vmax_mv;
@@ -2624,6 +2626,10 @@ static int haptics_load_constant_effect(struct haptics_chip *chip, u8 amplitude)
 
 	/* No effect data when playing constant waveform */
 	play->effect = NULL;
+
+	/* set play time */
+	play->length_us = length_us;
+	dev_dbg(chip->dev, "play->length_us is %u us", play->length_us);
 
 	/* Fix Vmax to (hpwr_vreg_mv - hdrm_mv) in non-HBOOST regulator case */
 	if (is_haptics_external_powered(chip)) {
@@ -3106,20 +3112,6 @@ static int haptics_stop_fifo_play(struct haptics_chip *chip)
 	return 0;
 }
 
-static void haptics_stop_constant_effect_play(struct work_struct *work)
-{
-	struct haptics_chip *chip = container_of(work, struct haptics_chip, stop_work.work);
-	int rc = 0;
-
-	rc = haptics_enable_play(chip, false);
-	if (rc < 0)
-		dev_err(chip->dev, "stop constant effect play failed\n");
-
-	rc = haptics_enable_hpwr_vreg(chip, false);
-	if (rc < 0)
-		dev_err(chip->dev, "disable hpwr_vreg failed\n");
-}
-
 static inline bool is_haptics_runtime_pm_enabled(struct haptics_chip *chip)
 {
 	return !!(chip->wa_flags & EN_RUNTIME_PM);
@@ -3183,10 +3175,16 @@ static int haptics_upload_effect(struct input_dev *dev,
 		struct ff_effect *effect, struct ff_effect *old)
 {
 	struct haptics_chip *chip = input_get_drvdata(dev);
-	u32 length_ms, tmp;
+	u32 length_us, tmp;
 	s16 level;
 	u8 amplitude;
 	int rc = 0;
+
+	if (effect->type == FF_DAMPER) {
+		chip->hboost_quick_off = true;
+		dev_info(chip->dev, "set hboost quick off!");
+		return 0;
+	}
 
 	rc = haptics_runtime_resume_get(chip);
 	if (rc < 0)
@@ -3210,15 +3208,14 @@ static int haptics_upload_effect(struct input_dev *dev,
 
 	switch (effect->type) {
 	case FF_CONSTANT:
-		length_ms = effect->replay.length;
+		length_us = effect->replay.length * USEC_PER_MSEC;
 		level = effect->u.constant.level;
 		tmp = get_direct_play_max_amplitude(chip);
 		tmp *= level;
 		amplitude = tmp / 0x7fff;
-		dev_dbg(chip->dev, "upload constant effect, length = %dms, amplitude = %#x\n",
-				length_ms, amplitude);
-		schedule_delayed_work(&chip->stop_work, msecs_to_jiffies(length_ms));
-		haptics_load_constant_effect(chip, amplitude);
+		dev_dbg(chip->dev, "upload constant effect, length = %dus, amplitude = %#x\n",
+				length_us, amplitude);
+		rc = haptics_load_constant_effect(chip, amplitude, length_us);
 		if (rc < 0) {
 			dev_err(chip->dev, "set direct play failed, rc=%d\n",
 					rc);
@@ -3299,16 +3296,34 @@ auto_suspend:
 static int haptics_playback(struct input_dev *dev, int effect_id, int val)
 {
 	struct haptics_chip *chip = input_get_drvdata(dev);
+	struct haptics_play_info *play = &chip->play;
+	int rc;
 
 	dev_dbg(chip->dev, "playback val = %d\n", val);
 	if (!!val) {
 		if (chip->config.measure_lra_impedance && chip->visense_enabled)
 			chip->pattern_start_time = ktime_get_boottime();
 
-		return haptics_enable_play(chip, true);
+		rc = haptics_enable_play(chip, true);
+		if (rc < 0)
+			return rc;
+		if (play->pattern_src == DIRECT_PLAY) {
+			u64 length_ns = (u64)play->length_us * NSEC_PER_USEC;
+			hrtimer_start(&chip->dph_off_timer,
+					ns_to_ktime(length_ns),
+					HRTIMER_MODE_REL);
+		}
+	} else {
+		if (play->pattern_src == FIFO &&
+				atomic_read(&play->fifo_status.is_busy)) {
+			dev_dbg(chip->dev, "FIFO playing is not done yet, defer stopping in erase\n");
+			return 0;
+		}
+
+		rc = haptics_enable_play(chip, false);
 	}
 
-	return 0;
+	return rc;
 }
 
 #define AVG_RSENSE_MEAS_PER_CYCLE		4
@@ -3391,9 +3406,17 @@ static int haptics_erase(struct input_dev *dev, int effect_id)
 	int rc;
 
 	dev_dbg(chip->dev, "erase effect, really stop play\n");
+	if (chip->hboost_quick_off) {
+		rc = haptics_boost_vreg_enable(chip, false);
+		if (rc < 0)
+			dev_err(chip->dev, "hboost quick off failed, rc=%d\n", rc);
+		else
+			dev_info(chip->dev, "hboost quick off\n");
+		chip->hboost_quick_off = false;
+		return 0;
+	}
 	cancel_work_sync(&chip->set_gain_work);
 	mutex_lock(&play->lock);
-	cancel_delayed_work_sync(&chip->stop_work);
 	pattern_run_time = ktime_us_delta(ktime_get_boottime(), chip->pattern_start_time);
 	if ((play->pattern_src == FIFO) &&
 			atomic_read(&play->fifo_status.is_busy)) {
@@ -3402,17 +3425,12 @@ static int haptics_erase(struct input_dev *dev, int effect_id)
 			atomic_set(&play->fifo_status.cancelled, 1);
 		}
 
+		msleep(FIFO_PLAY_STOP_DELAY);
+		dev_dbg(chip->dev, "fifo play stop delay %d ms\n", FIFO_PLAY_STOP_DELAY);
 		rc = haptics_stop_fifo_play(chip);
 		if (rc < 0) {
 			dev_err(chip->dev, "stop FIFO playing failed, rc=%d\n",
 					rc);
-			mutex_unlock(&play->lock);
-			goto restore;
-		}
-	} else {
-		rc = haptics_enable_play(chip, false);
-		if (rc < 0) {
-			dev_err(chip->dev, "stop play failed, rc=%d\n", rc);
 			mutex_unlock(&play->lock);
 			goto restore;
 		}
@@ -6205,6 +6223,21 @@ static enum hrtimer_restart haptics_disable_hbst_timer(struct hrtimer *timer)
 	return HRTIMER_NORESTART;
 }
 
+static enum hrtimer_restart haptics_disable_dph_timer(struct hrtimer *timer)
+{
+	struct haptics_chip *chip = container_of(timer,
+			struct haptics_chip, dph_off_timer);
+	int rc;
+
+	rc = haptics_enable_play(chip, false);
+	if (rc < 0)
+		dev_err(chip->dev, "disable haptics play failed, rc =%d\n", rc);
+	else
+		dev_dbg(chip->dev, "disable direct play haptics with timer\n");
+
+	return HRTIMER_NORESTART;
+}
+
 static int haptics_boost_notifier(struct notifier_block *nb, unsigned long event, void *val)
 {
 	struct haptics_chip *chip = container_of(nb, struct haptics_chip, hboost_nb);
@@ -6361,7 +6394,8 @@ static int haptics_probe(struct platform_device *pdev)
 	chip->fifo_empty_irq_en = false;
 	hrtimer_init(&chip->hbst_off_timer, CLOCK_MONOTONIC, HRTIMER_MODE_REL);
 	chip->hbst_off_timer.function = haptics_disable_hbst_timer;
-	INIT_DELAYED_WORK(&chip->stop_work, haptics_stop_constant_effect_play);
+	hrtimer_init(&chip->dph_off_timer, CLOCK_MONOTONIC, HRTIMER_MODE_REL);
+	chip->dph_off_timer.function = haptics_disable_dph_timer;
 	INIT_WORK(&chip->set_gain_work, haptics_set_gain_work);
 
 	atomic_set(&chip->play.fifo_status.is_busy, 0);
@@ -6555,6 +6589,8 @@ static int haptics_suspend_config(struct device *dev)
 	rc = haptics_enable_hpwr_vreg(chip, false);
 	if (rc < 0)
 		return rc;
+
+	hrtimer_cancel(&chip->dph_off_timer);
 
 	return haptics_module_enable(chip, false);
 }
