@@ -588,53 +588,61 @@ static void wakeup_source_activate(struct wakeup_source *ws)
 }
 
 #ifdef CONFIG_BOEFFLA_WL_BLOCKER
-// AP: Function to check if a wakelock is on the wakelock blocker list
-static bool check_for_block(struct wakeup_source *ws)
+/* Pure predicate, no side effects: safe for the diagnostic walkers, which run
+ * under SRCU without ws->lock. */
+static bool wl_blocker_listed(struct wakeup_source *ws)
 {
-	char wakelock_name[52] = {0};
+	char needle[128];
 	int length;
+
+	if (!ws || !wl_blocker_active)
+		return false;
+
+	/* Whole ';'-delimited token. The search string is delimited at both
+	 * ends, so ";name;" matches the first and last entry too. A bare
+	 * substring test also blocked any name contained in a longer listed
+	 * entry -- unlisted blocks that no list edit could undo. */
+	length = strlen(ws->name);
+	if (length < 1 || (size_t)length + 3 > sizeof(needle))
+		return false;	/* over-long name: fail safe, do not block */
+
+	scnprintf(needle, sizeof(needle), ";%s;", ws->name);
+
+	return strstr(list_wl_search, needle) != NULL;
+}
+
+// AP: Function to check if a wakelock is on the wakelock blocker list
+static bool check_for_block(struct wakeup_source *ws, bool hard)
+{
+	if (!ws)
+		return false;
 
 	// if debug mode on, print every wakelock requested
 	if (wl_blocker_debug)
 		printk("Boeffla WL blocker: %s requested\n", ws->name);
 
-	// if there is no list of wakelocks to be blocked, exit without futher checking
-	if (!wl_blocker_active)
+	/* A hard event is a system wake signal (power key, wake IRQ) that must
+	 * abort an in-flight suspend. Never block one, whatever the list says. */
+	if (hard)
 		return false;
 
-	// only if ws structure is valid
-	if (ws)
-	{
-		// wake lock names handled have maximum length=50 and minimum=1
-		length = strlen(ws->name);
-		if ((length > 50) || (length < 1))
-			return false;
+	if (!wl_blocker_listed(ws))
+		return false;
 
-		// check if wakelock is in wake lock list to be blocked
-		sprintf(wakelock_name, ";%s;", ws->name);
+	// wake lock is in list, print it if debug mode on
+	if (wl_blocker_debug)
+		printk("Boeffla WL blocker: %s blocked\n", ws->name);
 
-		if(strstr(list_wl_search, wakelock_name) == NULL)
-			return false;
+	// if it is currently active, deactivate it immediately + log in debug mode
+	if (ws->active) {
+		wakeup_source_deactivate(ws);
 
-		// wake lock is in list, print it if debug mode on
 		if (wl_blocker_debug)
-			printk("Boeffla WL blocker: %s blocked\n", ws->name);
-
-		// if it is currently active, deactivate it immediately + log in debug mode
-		if (ws->active)
-		{
-			wakeup_source_deactivate(ws);
-
-			if (wl_blocker_debug)
-				printk("Boeffla WL blocker: %s killed\n", ws->name);
-		}
-
-		// finally block it
-		return true;
+			printk("Boeffla WL blocker: %s killed\n", ws->name);
 	}
 
-	// there was no valid ws structure, do not block by default
-	return false;
+	// finally block it
+	return true;
 }
 #endif
 
@@ -642,13 +650,14 @@ static bool check_for_block(struct wakeup_source *ws)
  * wakeup_source_report_event - Report wakeup event using the given source.
  * @ws: Wakeup source to report the event for.
  * @hard: If set, abort suspends in progress and wake up from suspend-to-idle.
+ *
+ * Returns true if the event was suppressed by the wakelock blocker.
  */
-static void wakeup_source_report_event(struct wakeup_source *ws, bool hard)
+static bool wakeup_source_report_event(struct wakeup_source *ws, bool hard)
 {
 #ifdef CONFIG_BOEFFLA_WL_BLOCKER
-	/* AP: a wakelock on the blocker list is neither counted nor activated */
-	if (check_for_block(ws))
-		return;
+	if (check_for_block(ws, hard))	// AP: check if wakelock is on wakelock blocker list
+		return true;
 #endif
 	ws->event_count++;
 	/* This is racy, but the counter is approximate anyway. */
@@ -660,6 +669,8 @@ static void wakeup_source_report_event(struct wakeup_source *ws, bool hard)
 
 	if (hard)
 		pm_system_wakeup();
+
+	return false;
 }
 
 /**
@@ -866,7 +877,12 @@ void pm_wakeup_ws_event(struct wakeup_source *ws, unsigned int msec, bool hard)
 
 	spin_lock_irqsave(&ws->lock, flags);
 
-	wakeup_source_report_event(ws, hard);
+	/* A blocked event must not arm the timer: the source is already down, so
+	 * pm_wakeup_timer_fn() would only wake a CPU to find nothing active --
+	 * per-event timer churn on the sources the block list exists to
+	 * silence. */
+	if (wakeup_source_report_event(ws, hard))
+		goto unlock;
 
 	if (!msec) {
 		wakeup_source_deactivate(ws);
@@ -949,8 +965,9 @@ void pm_print_active_wakeup_sources(void)
 	list_for_each_entry_rcu_locked(ws, &wakeup_sources, entry) {
 		if (ws->active) {
 #ifdef CONFIG_BOEFFLA_WL_BLOCKER
-			/* AP: blocked wakelocks do not count as active */
-			if (check_for_block(ws))
+			/* Report path: use the predicate, not check_for_block()
+			 * -- that deactivates the source without ws->lock. */
+			if (wl_blocker_listed(ws))
 				continue;
 #endif
 			pm_pr_dbg("active wakeup source: %s\n", ws->name);

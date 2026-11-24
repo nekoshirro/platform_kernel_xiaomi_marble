@@ -1,7 +1,7 @@
 /*
  * Author: andip71, 01.09.2017
  *
- * Version 1.1.0
+ * Version 1.2.0
  *
  * This software is licensed under the terms of the GNU General Public
  * License version 2, as published by the Free Software Foundation, and
@@ -16,6 +16,14 @@
 
 /*
  * Change log:
+ *
+ * 1.2.0 (2026-08-30)
+ *   - Curate the default list for portability across MTK/QCOM
+ *   - Match whole ';'-delimited names, not any substring
+ *   - Never block a hard wakeup event; restore pm_system_wakeup()
+ *   - Blocked events no longer arm the wakeup-source expiry timer
+ *   - Split out a side-effect-free predicate for the diagnostic walker
+ *   - Fix the active flag, list capacities and terminator bounds
  *
  * 1.1.0 (01.09.2017)
  *   - By default, the following wakelocks are blocked in an own list
@@ -56,14 +64,15 @@ extern bool wl_blocker_debug;
 
 static void build_search_string(const char *list1, const char *list2)
 {
-	// store wakelock list and search string (with semicolons added at start and end)
-	sprintf(list_wl_search, ";%s;%s;", list1, list2);
+	/* Rebuilt in place, unlocked: a concurrent reader can match against a
+	 * mixed old/new string for one scnprintf(), but never reads out of
+	 * bounds. Not worth a lock in the wakeup path. */
+	scnprintf(list_wl_search, LENGTH_LIST_WL_SEARCH, ";%s;%s;", list1, list2);
 
-	// set flag if wakelock blocker should be active (for performance reasons)
-	if (strlen(list_wl_search) > 5)
-		wl_blocker_active = true;
-	else
-		wl_blocker_active = false;
+	/* Either list non-empty. The old strlen(search) > 5 test measured the
+	 * delimiter-wrapped string, so a short entry (";a;;") left the blocker
+	 * off and the write silently did nothing. */
+	wl_blocker_active = list1[0] || list2[0];
 }
 
 
@@ -84,12 +93,15 @@ static ssize_t wakelock_blocker_show(struct device *dev, struct device_attribute
 static ssize_t wakelock_blocker_store(struct device * dev, struct device_attribute *attr,
 			     const char * buf, size_t n)
 {
-	// check if string is too long to be stored
-	if (n > LENGTH_LIST_WL)
+	int len = strcspn(buf, "\n");
+
+	/* '>=': the terminator below needs the last byte. */
+	if (len >= LENGTH_LIST_WL)
 		return -EINVAL;
 
 	// store user configured wakelock list and rebuild search string
-	sscanf(buf, "%s", list_wl);
+	memcpy(list_wl, buf, len);
+	list_wl[len] = '\0';
 	build_search_string(list_wl_default, list_wl);
 
 	return n;
@@ -109,12 +121,15 @@ static ssize_t wakelock_blocker_default_show(struct device *dev, struct device_a
 static ssize_t wakelock_blocker_default_store(struct device * dev, struct device_attribute *attr,
 			     const char * buf, size_t n)
 {
-	// check if string is too long to be stored
-	if (n > LENGTH_LIST_WL_DEFAULT)
+	int len = strcspn(buf, "\n");
+
+	/* '>=': the terminator below needs the last byte. */
+	if (len >= LENGTH_LIST_WL_DEFAULT)
 		return -EINVAL;
 
 	// store default, predefined wakelock list and rebuild search string
-	sscanf(buf, "%s", list_wl_default);
+	memcpy(list_wl_default, buf, len);
+	list_wl_default[len] = '\0';
 	build_search_string(list_wl_default, list_wl);
 
 	return n;
