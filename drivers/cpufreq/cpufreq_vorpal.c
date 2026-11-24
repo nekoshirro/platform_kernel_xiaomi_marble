@@ -718,6 +718,46 @@ static unsigned int rfx_thermal_cap_pct(struct rfx_policy *p)
 	return 100;
 }
 
+static void rfx_update_eco_state(struct rfx_policy *p, u64 time, bool touch,
+				 unsigned long max_uclamp_min,
+				 unsigned long max_cap)
+{
+	unsigned int ucmin_pct = max_cap ?
+		(unsigned int)(max_uclamp_min * 100 / max_cap) : 0;
+	unsigned int ema_pct = max_cap ?
+		(unsigned int)((u64)p->filt_util * 100 / max_cap) : 0;
+	u64 quiet_ns = rfx_input_quiet_ns(time);
+
+	/* Universal quiescent eco state: stage 1 (light idle), stage 2 (deep idle) */
+	if (touch || p->dl_bw_exceeded || ucmin_pct >= RFX_ECO_EXIT_UCMIN_PCT ||
+	    quiet_ns < RFX_ECO_INPUT_QUIET_NS) {
+		p->eco_lite_active = false;
+		p->eco_deep_active = false;
+		return;
+	}
+
+	if (p->eco_deep_active) {
+		if (ucmin_pct >= RFX_ECO_DEEP_UCMIN_PCT ||
+		    ema_pct >= RFX_ECO_DEEP_DEMAND_PCT ||
+		    quiet_ns < RFX_ECO_DEEP_INPUT_QUIET_NS)
+			p->eco_deep_active = false;
+	} else if (quiet_ns >= RFX_ECO_DEEP_INPUT_QUIET_NS &&
+		   ucmin_pct < RFX_ECO_DEEP_UCMIN_PCT &&
+		   ema_pct < RFX_ECO_DEEP_DEMAND_PCT) {
+		p->eco_deep_active = true;
+	}
+
+	if (p->eco_lite_active) {
+		if (ucmin_pct >= RFX_ECO_UCMIN_PCT ||
+		    ema_pct >= RFX_ECO_LITE_DEMAND_PCT)
+			p->eco_lite_active = false;
+	} else if (!p->eco_deep_active &&
+		   ucmin_pct < RFX_ECO_UCMIN_PCT &&
+		   ema_pct < RFX_ECO_LITE_DEMAND_PCT) {
+		p->eco_lite_active = true;
+	}
+}
+
 static unsigned int rfx_target_freq(struct rfx_policy *p, unsigned long util,
 				    unsigned long max_uclamp_min,
 				    unsigned long max_uclamp_max,
@@ -882,43 +922,6 @@ static unsigned int rfx_target_freq(struct rfx_policy *p, unsigned long util,
 		unsigned int prime_cap_pct = touch ? 38 : RFX_D_SWEET_CAP_PRIME_PCT;
 		unsigned int little_cap_pct = touch ? 42 : RFX_D_LITTLE_CAP_PCT;
 
-		/* Universal quiescent eco state: stage 1 (light idle), stage 2 (deep idle) */
-		if (touch || p->dl_bw_exceeded || ucmin_pct >= RFX_ECO_EXIT_UCMIN_PCT ||
-		    rfx_input_quiet_ns(time) < RFX_ECO_INPUT_QUIET_NS) {
-			p->eco_lite_active = false;
-			p->eco_deep_active = false;
-		} else {
-			if (p->eco_deep_active) {
-				if (ucmin_pct >= RFX_ECO_DEEP_UCMIN_PCT ||
-				    p->dl_bw_exceeded ||
-				    ema_pct >= RFX_ECO_DEEP_DEMAND_PCT ||
-				    rfx_input_quiet_ns(time) <
-				    RFX_ECO_DEEP_INPUT_QUIET_NS)
-					p->eco_deep_active = false;
-			} else if (rfx_input_quiet_ns(time) >=
-				   RFX_ECO_DEEP_INPUT_QUIET_NS &&
-				   !p->dl_bw_exceeded &&
-				   ucmin_pct < RFX_ECO_DEEP_UCMIN_PCT &&
-				   ema_pct < RFX_ECO_DEEP_DEMAND_PCT) {
-				p->eco_deep_active = true;
-			}
-			if (p->eco_lite_active) {
-				if (ucmin_pct >= RFX_ECO_UCMIN_PCT ||
-				    p->dl_bw_exceeded ||
-				    ema_pct >= RFX_ECO_LITE_DEMAND_PCT ||
-				    rfx_input_quiet_ns(time) <
-				    RFX_ECO_INPUT_QUIET_NS)
-					p->eco_lite_active = false;
-			} else if (!p->eco_deep_active &&
-				   rfx_input_quiet_ns(time) >=
-				   RFX_ECO_INPUT_QUIET_NS &&
-				   !p->dl_bw_exceeded &&
-				   ucmin_pct < RFX_ECO_UCMIN_PCT &&
-				   ema_pct < RFX_ECO_LITE_DEMAND_PCT) {
-				p->eco_lite_active = true;
-			}
-		}
-
 		demand_pct = (unsigned int)(raw_util * 100 / max_cap);
 		p->dbg_demand_pct = demand_pct;
 
@@ -1001,10 +1004,6 @@ static unsigned int rfx_target_freq(struct rfx_policy *p, unsigned long util,
 
 			/* Sub-linear light load quadratic mapping */
 			if (!touch && !p->dl_bw_exceeded && ucmin_pct < 8) {
-				unsigned int ema_pct =
-					(unsigned int)((u64)p->filt_util *
-						    100 / max_cap);
-
 				if (ema_pct < RFX_D_SUBLINEAR_KNEE_PCT) {
 					unsigned int eff =
 						(unsigned int)((u64)ema_pct *
@@ -1409,13 +1408,17 @@ static bool rfx_commit_freq(struct rfx_policy *p, u64 time, unsigned int next_fr
 
 	if (next_freq < p->next_freq) {
 		delta = (s64)(time - p->last_downfreq_time);
-		if (p->down_rate_delay_ns > 0 && delta < p->down_rate_delay_ns)
+		if (p->down_rate_delay_ns > 0 && delta < p->down_rate_delay_ns) {
+			p->cached_raw_freq = 0;
 			return false;
+		}
 		p->last_downfreq_time = time;
 	} else {
 		delta = (s64)(time - p->last_upfreq_time);
-		if (p->up_rate_delay_ns > 0 && delta < p->up_rate_delay_ns)
+		if (p->up_rate_delay_ns > 0 && delta < p->up_rate_delay_ns) {
+			p->cached_raw_freq = 0;
 			return false;
+		}
 		p->last_upfreq_time = time;
 	}
 
@@ -1485,6 +1488,8 @@ static unsigned int rfx_next_freq(struct rfx_cpu *rfx_c, u64 time, bool gaming)
 		unsigned int fmin = p->policy->min;
 		unsigned int park_thresh =
 			(unsigned int)(max_cap * RFX_D_IDLE_FLOOR_SNAP_PCT / 100);
+
+		rfx_update_eco_state(p, time, touch, max_uclamp_min, max_cap);
 
 		/* Instant Suspend Park: keep all clusters parked to fmin during PM suspend */
 		if (unlikely(READ_ONCE(rfx_suspended))) {
