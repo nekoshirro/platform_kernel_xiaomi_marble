@@ -53,10 +53,17 @@ static int qcom_reboot_reason_reboot(struct notifier_block *this,
 		struct qcom_reboot_reason, reboot_nb);
 	struct poweroff_reason *reason;
 
+	if (event != SYS_RESTART)
+		return NOTIFY_OK;
+
 	if (!cmd) {
-		nvmem_cell_write(reboot->nvmem_cell,
-				 &reasons[RESTART_REASON_NORMAL].pon_reason,
-				 sizeof(reasons[RESTART_REASON_NORMAL].pon_reason));
+		if (reboot->nvmem_cell)
+			nvmem_cell_write(reboot->nvmem_cell,
+					 &reasons[RESTART_REASON_NORMAL].pon_reason,
+					 sizeof(reasons[RESTART_REASON_NORMAL].pon_reason));
+		else
+			qpnp_pon_set_restart_reason(
+					(enum pon_restart_reason)reasons[RESTART_REASON_NORMAL].pon_reason);
 		return NOTIFY_OK;
 	}
 	for (reason = reasons; reason->cmd; reason++) {
@@ -71,9 +78,13 @@ static int qcom_reboot_reason_reboot(struct notifier_block *this,
 			return NOTIFY_OK;
 		}
 	}
-	nvmem_cell_write(reboot->nvmem_cell,
-			&reason->pon_reason,
-			sizeof(reason->pon_reason));
+	if (reboot->nvmem_cell)
+		nvmem_cell_write(reboot->nvmem_cell,
+				 &reason->pon_reason,
+				 sizeof(reason->pon_reason));
+	else
+		qpnp_pon_set_restart_reason(
+				(enum pon_restart_reason)reason->pon_reason);
 
 	return NOTIFY_OK;
 }
@@ -84,9 +95,13 @@ static int panic_prep_restart(struct notifier_block *this,
 	struct qcom_reboot_reason *reboot = container_of(this,
 		struct qcom_reboot_reason, panic_nb);
 
-	nvmem_cell_write(reboot->nvmem_cell,
-			&reasons[RESTART_REASON_PANIC].pon_reason,
-			sizeof(reasons[RESTART_REASON_PANIC].pon_reason));
+	if (reboot->nvmem_cell)
+		nvmem_cell_write(reboot->nvmem_cell,
+				 &reasons[RESTART_REASON_PANIC].pon_reason,
+				 sizeof(reasons[RESTART_REASON_PANIC].pon_reason));
+	else
+		qpnp_pon_set_restart_reason(
+				(enum pon_restart_reason)reasons[RESTART_REASON_PANIC].pon_reason);
 	return NOTIFY_DONE;
 }
 
