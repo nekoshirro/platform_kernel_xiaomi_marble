@@ -922,8 +922,9 @@ static void create_thermal_message_node(void)
 	if (!mi_thermal_dev.class && cls) {
 		mi_thermal_dev.class = cls;
 		mi_thermal_dev.dev = device_create(mi_thermal_dev.class, NULL, 'H', NULL, "thermal_message");
-		if (!mi_thermal_dev.dev) {
+		if (IS_ERR_OR_NULL(mi_thermal_dev.dev)) {
 			pr_err("%s create device dev err\n", __func__);
+			mi_thermal_dev.dev = NULL;
 			return;
 		}
 		mi_thermal_dev.attrs.attrs = mi_thermal_dev_attr_group;
@@ -938,7 +939,7 @@ static void create_thermal_message_node(void)
 static void destroy_thermal_message_node(void)
 {
 	printk(KERN_ERR "%s:destroy_thermal_message_node", __func__);
-	if (mi_thermal_dev.dev) {
+	if (!IS_ERR_OR_NULL(mi_thermal_dev.dev)) {
 		sysfs_remove_group(&mi_thermal_dev.dev->kobj, &mi_thermal_dev.attrs);
 		mi_thermal_dev.dev = NULL;
 	}
