@@ -455,7 +455,8 @@ struct tcp_sock {
 	struct saved_syn *saved_syn;
 
 	ANDROID_OEM_DATA(1);
-	ANDROID_KABI_RESERVE(1);
+	/* BBRv3 congestion control state (dynamically allocated, KMI-safe) */
+	void *bbr_v3_state;
 };
 
 enum tsq_enum {
