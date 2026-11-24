@@ -143,9 +143,7 @@ source "fs/netfs/Kconfig"
 source "fs/fscache/Kconfig"
 source "fs/cachefiles/Kconfig"
 
-config FS_NOMOUNT
-	bool "NoMount VFS path redirection subsystem"
-	default y
+source "fs/nomount/Kconfig"
 
 endmenu
 
