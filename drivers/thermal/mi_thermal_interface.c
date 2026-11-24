@@ -923,7 +923,10 @@ static void create_thermal_message_node(void)
 static void destroy_thermal_message_node(void)
 {
 	printk(KERN_ERR "%s:destroy_thermal_message_node", __func__);
-	sysfs_remove_group(&mi_thermal_dev.dev->kobj, &mi_thermal_dev.attrs);
+	if (mi_thermal_dev.dev) {
+		sysfs_remove_group(&mi_thermal_dev.dev->kobj, &mi_thermal_dev.attrs);
+		mi_thermal_dev.dev = NULL;
+	}
 	if (NULL != mi_thermal_dev.class) {
 		device_destroy(mi_thermal_dev.class,'H');
 		mi_thermal_dev.class = NULL;
@@ -1007,6 +1010,10 @@ static void __exit mi_thermal_interface_exit(void)
 	} else {
 		printk(KERN_ERR "%s:prim_panel_event_notifier_unregister falt\n", __func__);
 	}
+#endif
+#ifdef CONFIG_MI_THERMAL_MULTI_CHARGE
+	power_supply_unreg_notifier(&usb_state.psy_nb);
+	cancel_work_sync(&usb_state.usb_state_work);
 #endif
 	destroy_thermal_message_node();
 	destory_thermal_cpu();
