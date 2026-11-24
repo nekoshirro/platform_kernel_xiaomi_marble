@@ -10,6 +10,7 @@
 #include <linux/kernel.h>
 #include <linux/module.h>
 #include <linux/console.h>
+#include <linux/io.h>
 #include <linux/vmalloc.h>
 #include <linux/slab.h>
 #include <linux/workqueue.h>
@@ -115,6 +116,7 @@ struct pmsg_platform_data {
 	phys_addr_t		mem_address;
 	unsigned long	console_size;
 	unsigned long	pmsg_size;
+	void		*vaddr;
 };
 
 static struct mtdoops_context {
@@ -442,10 +444,10 @@ static void mtdoops_do_dump(struct kmsg_dumper *dumper,
 			   kmsg_dump_size - MTDOOPS_HEADER_SIZE, reason,
 			   MTDOOPS_TYPE_DMESG, cxt->nextcount, cxt->nextpage);
 
-	if (!cxt->pmsg_data.mem_address)
+	if (!cxt->pmsg_data.vaddr)
 		goto write;
 
-	pmsg_buffer_start = phys_to_virt((cxt->pmsg_data.mem_address + cxt->pmsg_data.mem_size) - cxt->pmsg_data.pmsg_size);
+	pmsg_buffer_start = cxt->pmsg_data.vaddr;
 	p_hdr = (struct pmsg_buffer_hdr *)pmsg_buffer_start;
 
 	pr_err("mtdoops: mtdoops_do_dump pmsg paddr = %p \n",pmsg_buffer_start);
@@ -643,6 +645,7 @@ static int mtdoops_pmsg_probe(struct platform_device *pdev)
 {
 	struct mtdoops_context *cxt = &oops_cxt;
 	struct resource *res;
+	phys_addr_t pmsg_phys;
 	u32 value;
 	int ret;
 
@@ -669,6 +672,22 @@ static int mtdoops_pmsg_probe(struct platform_device *pdev)
 	parse_u32("console-size", cxt->pmsg_data.console_size, 0);
 	parse_u32("pmsg-size", cxt->pmsg_data.pmsg_size, 0);
 #undef parse_u32
+
+	if (cxt->pmsg_data.pmsg_size &&
+	    cxt->pmsg_data.pmsg_size <= cxt->pmsg_data.mem_size) {
+		pmsg_phys = (cxt->pmsg_data.mem_address +
+			     cxt->pmsg_data.mem_size) -
+			    cxt->pmsg_data.pmsg_size;
+		cxt->pmsg_data.vaddr = devm_memremap(&pdev->dev, pmsg_phys,
+						     cxt->pmsg_data.pmsg_size,
+						     MEMREMAP_WC);
+		if (IS_ERR(cxt->pmsg_data.vaddr)) {
+			dev_err(&pdev->dev,
+				"failed to remap pmsg region: %ld\n",
+				PTR_ERR(cxt->pmsg_data.vaddr));
+			cxt->pmsg_data.vaddr = NULL;
+		}
+	}
 
 	printk(KERN_ERR "mtdoops: pares mtd_dt, mem_address =%pa, mem_size =0x%lx \n", &cxt->pmsg_data.mem_address, cxt->pmsg_data.mem_size);
 	printk(KERN_ERR "mtdoops: pares mtd_dt, pmsg_size =0x%lx \n", cxt->pmsg_data.pmsg_size);
