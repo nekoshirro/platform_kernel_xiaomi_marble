@@ -347,7 +347,10 @@ static void find_next_position(struct mtdoops_context *cxt)
 	mtdoops_inc_counter(cxt);
 }
 
-static void mtdoops_add_reason(char *oops_buf, enum mtd_dump_reason reason, enum mtdoops_log_type type, int index, int nextpage)
+static void mtdoops_add_reason(char *oops_buf, size_t max_len,
+			       enum mtd_dump_reason reason,
+			       enum mtdoops_log_type type, int index,
+			       int nextpage)
 {
 	char str_buf[200] = {0};
 	int ret_len = 0;
@@ -358,19 +361,24 @@ static void mtdoops_add_reason(char *oops_buf, enum mtd_dump_reason reason, enum
 	time64_to_tm(now.tv_sec, 0, &ts);
 
 	if (nextpage > 1)
-		ret_len =  snprintf(str_buf, 200,
+		ret_len = snprintf(str_buf, sizeof(str_buf),
 				"\n```\n## Index: %d\t\n### Build: %s\t\n## REASON: %s\n#### LOG TYPE:%s\n#####%04ld-%02d-%02d %02d:%02d:%02d\t\n```c\t\n",
 				index, build_fingerprint, kdump_reason[reason], log_type[type], ts.tm_year+1900, ts.tm_mon+1, ts.tm_mday, ts.tm_hour, ts.tm_min, ts.tm_sec);
 	else
-		ret_len =  snprintf(str_buf, 200,
+		ret_len = snprintf(str_buf, sizeof(str_buf),
 				"\n\n## Index: %d\t\n### Build: %s\t\n## REASON: %s\n#### LOG TYPE: %s\n#####%04ld-%02d-%02d %02d:%02d:%02d\t\n```c\t\n",
 				index, build_fingerprint, kdump_reason[reason], log_type[type], ts.tm_year+1900, ts.tm_mon+1, ts.tm_mday, ts.tm_hour, ts.tm_min, ts.tm_sec);
 
-	memcpy(oops_buf, str_buf, ret_len);
+	if (ret_len <= 0)
+		return;
+	if (ret_len >= sizeof(str_buf))
+		ret_len = sizeof(str_buf) - 1;
+	memcpy(oops_buf, str_buf, min_t(size_t, ret_len, max_len));
 }
 
 
-static void mtdoops_add_pmsg_head(char *oops_buf, enum mtdoops_log_type type)
+static void mtdoops_add_pmsg_head(char *oops_buf, size_t max_len,
+				  enum mtdoops_log_type type)
 {
 	char str_buf[80] = {0};
 	int ret_len = 0;
@@ -380,11 +388,15 @@ static void mtdoops_add_pmsg_head(char *oops_buf, enum mtdoops_log_type type)
 	ktime_get_coarse_real_ts64(&now);
 	time64_to_tm(now.tv_sec, 0, &ts);
 
-	ret_len =  snprintf(str_buf, 80,
+	ret_len = snprintf(str_buf, sizeof(str_buf),
 			"\n```\n#### LOG TYPE:%s\n#####%04ld-%02d-%02d %02d:%02d:%02d\t\n```c\t\n",
 			log_type[type], ts.tm_year+1900, ts.tm_mon, ts.tm_mday, ts.tm_hour, ts.tm_min, ts.tm_sec);
 
-	memcpy(oops_buf, str_buf, ret_len);
+	if (ret_len <= 0)
+		return;
+	if (ret_len >= sizeof(str_buf))
+		ret_len = sizeof(str_buf) - 1;
+	memcpy(oops_buf, str_buf, min_t(size_t, ret_len, max_len));
 }
 
 static void mtdoops_do_dump(struct kmsg_dumper *dumper,
@@ -394,6 +406,7 @@ static void mtdoops_do_dump(struct kmsg_dumper *dumper,
 	static int do_dump_count = 0;
 	struct mtdoops_context *cxt = container_of(dumper,
 			struct mtdoops_context, dump);
+	size_t kmsg_dump_size;
 	size_t ret_len = 0;
 	char *pmsg_buffer_start = NULL;
 	struct pmsg_buffer_hdr *p_hdr = NULL;
@@ -417,11 +430,17 @@ static void mtdoops_do_dump(struct kmsg_dumper *dumper,
 	if (reason == MTD_DUMP_OOPS && !dump_oops)
 		return;
 
+	kmsg_dump_size = min_t(unsigned long, lkmsg_record_size, record_size);
+	if (kmsg_dump_size <= MTDOOPS_HEADER_SIZE)
+		return;
+
 	kmsg_dump_rewind(&iter);
 	kmsg_dump_get_buffer(&iter, true, cxt->oops_buf + MTDOOPS_HEADER_SIZE,
-						lkmsg_record_size - MTDOOPS_HEADER_SIZE, &ret_len);
+			     kmsg_dump_size - MTDOOPS_HEADER_SIZE, &ret_len);
 
-	mtdoops_add_reason(cxt->oops_buf + MTDOOPS_HEADER_SIZE, reason, MTDOOPS_TYPE_DMESG, cxt->nextcount, cxt->nextpage);
+	mtdoops_add_reason(cxt->oops_buf + MTDOOPS_HEADER_SIZE,
+			   kmsg_dump_size - MTDOOPS_HEADER_SIZE, reason,
+			   MTDOOPS_TYPE_DMESG, cxt->nextcount, cxt->nextpage);
 
 	if (!cxt->pmsg_data.mem_address)
 		goto write;
@@ -439,17 +458,21 @@ static void mtdoops_do_dump(struct kmsg_dumper *dumper,
 		int pstart = p_hdr->start.counter;
 		int psize = p_hdr->size.counter;
 
-		pmsg_cp_size = (record_size - (ret_len + MTDOOPS_HEADER_SIZE));
-		if (psize <= pmsg_cp_size)
+		if (record_size > ret_len + MTDOOPS_HEADER_SIZE)
+			pmsg_cp_size = record_size - (ret_len + MTDOOPS_HEADER_SIZE);
+		if (psize >= 0 && psize <= pmsg_cp_size)
 			pmsg_cp_size = psize;
 
-		if (pstart >= pmsg_cp_size)
-			memcpy(oopsbuf, p_hdr->data, pmsg_cp_size);
-		else{
-			memcpy(oopsbuf, p_buff_end - (pmsg_cp_size - pstart), pmsg_cp_size - pstart);
-			memcpy(oopsbuf + (pmsg_cp_size - pstart), p_hdr->data, pstart);
+		if (pmsg_cp_size > 0 && pstart >= 0) {
+			if (pstart >= pmsg_cp_size)
+				memcpy(oopsbuf, p_hdr->data, pmsg_cp_size);
+			else {
+				memcpy(oopsbuf, p_buff_end - (pmsg_cp_size - pstart), pmsg_cp_size - pstart);
+				memcpy(oopsbuf + (pmsg_cp_size - pstart), p_hdr->data, pstart);
+			}
+			mtdoops_add_pmsg_head(oopsbuf, pmsg_cp_size,
+					      MTDOOPS_TYPE_PMSG);
 		}
-		mtdoops_add_pmsg_head(cxt->oops_buf + (MTDOOPS_HEADER_SIZE + ret_len), MTDOOPS_TYPE_PMSG);
 	}
 	else
 		printk(KERN_ERR "mtdoops: read pmsg failed sig = 0x%x \n", p_hdr->sig);
@@ -696,7 +719,7 @@ static int __init mtdoops_init(void)
 		cxt->mtd_index = mtd_index;
 
 	//cxt->oops_buf = vmalloc(record_size);
-	cxt->oops_buf = kmalloc(record_size, GFP_KERNEL);
+	cxt->oops_buf = kvzalloc(record_size, GFP_KERNEL);
 	if (!cxt->oops_buf) {
 		printk(KERN_ERR "mtdoops: failed to allocate buffer workspace\n");
 		return -ENOMEM;
@@ -719,7 +742,7 @@ static void __exit mtdoops_exit(void)
 	struct mtdoops_context *cxt = &oops_cxt;
 
 	unregister_mtd_user(&mtdoops_notifier);
-	kfree(cxt->oops_buf);
+	kvfree(cxt->oops_buf);
 	vfree(cxt->oops_page_used);
 }
 
