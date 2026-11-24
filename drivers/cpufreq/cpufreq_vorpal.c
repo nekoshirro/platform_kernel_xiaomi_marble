@@ -30,7 +30,6 @@
 #include <linux/workqueue.h>
 #include <linux/atomic.h>
 #include <linux/list.h>
-#include <linux/input.h>
 #include <linux/suspend.h>
 
 #define CREATE_TRACE_POINTS
@@ -354,28 +353,27 @@ static DEFINE_SPINLOCK(rfx_topo_lock);
 static void rfx_init_topology(void)
 {
 	unsigned long flags;
-	int cpu, i, j;
+	int cpu, i, j, ntiers = 0;
 	unsigned long c;
 
 	spin_lock_irqsave(&rfx_topo_lock, flags);
-	if (rfx_num_tiers > 1) {
+	if (READ_ONCE(rfx_num_tiers) > 1) {
 		spin_unlock_irqrestore(&rfx_topo_lock, flags);
 		return;
 	}
 
-	rfx_num_tiers = 0;
 	for_each_possible_cpu(cpu) {
 		c = arch_scale_cpu_capacity(cpu);
-		for (i = 0; i < rfx_num_tiers; i++) {
+		for (i = 0; i < ntiers; i++) {
 			if (rfx_caps_sorted[i] == c)
 				break;
 		}
-		if (i == rfx_num_tiers && rfx_num_tiers < (int)ARRAY_SIZE(rfx_caps_sorted))
-			rfx_caps_sorted[rfx_num_tiers++] = c;
+		if (i == ntiers && ntiers < (int)ARRAY_SIZE(rfx_caps_sorted))
+			rfx_caps_sorted[ntiers++] = c;
 	}
 
-	for (i = 0; i < rfx_num_tiers - 1; i++) {
-		for (j = i + 1; j < rfx_num_tiers; j++) {
+	for (i = 0; i < ntiers - 1; i++) {
+		for (j = i + 1; j < ntiers; j++) {
 			if (rfx_caps_sorted[i] > rfx_caps_sorted[j]) {
 				unsigned long tmp = rfx_caps_sorted[i];
 				rfx_caps_sorted[i] = rfx_caps_sorted[j];
@@ -383,43 +381,50 @@ static void rfx_init_topology(void)
 			}
 		}
 	}
+	smp_wmb();
+	WRITE_ONCE(rfx_num_tiers, ntiers);
 	spin_unlock_irqrestore(&rfx_topo_lock, flags);
 }
 
 static int rfx_ntiers(void)
 {
-	if (unlikely(rfx_num_tiers <= 1))
+	int ntiers = READ_ONCE(rfx_num_tiers);
+
+	if (unlikely(ntiers <= 1)) {
 		rfx_init_topology();
-	return rfx_num_tiers;
+		ntiers = READ_ONCE(rfx_num_tiers);
+	}
+	smp_rmb();
+	return ntiers;
 }
 
 static inline bool rfx_cap_is_little(unsigned long cap)
 {
-	if (unlikely(rfx_num_tiers <= 1))
-		rfx_init_topology();
+	int ntiers = rfx_ntiers();
+
 	if (cap > (unsigned long)RFX_LITTLE_CAP_THRESHOLD)
 		return false;
-	if (rfx_num_tiers <= 1)
+	if (ntiers <= 1)
 		return true;
 	return cap == rfx_caps_sorted[0];
 }
 
 static inline bool rfx_cap_is_top(unsigned long cap)
 {
-	if (unlikely(rfx_num_tiers <= 1))
-		rfx_init_topology();
-	if (rfx_num_tiers <= 1)
+	int ntiers = rfx_ntiers();
+
+	if (ntiers <= 1)
 		return cap >= (unsigned long)RFX_PRIME_CAP_THRESHOLD;
-	return cap == rfx_caps_sorted[rfx_num_tiers - 1];
+	return cap == rfx_caps_sorted[ntiers - 1];
 }
 
 static inline bool rfx_cap_is_prime(unsigned long cap)
 {
-	if (unlikely(rfx_num_tiers <= 1))
-		rfx_init_topology();
+	int ntiers = rfx_ntiers();
+
 	if (cap < (unsigned long)896)
 		return false;
-	return rfx_num_tiers >= 3 && rfx_cap_is_top(cap);
+	return ntiers >= 3 && rfx_cap_is_top(cap);
 }
 
 static inline unsigned int rfx_pct(unsigned int fmax, unsigned int pct)
@@ -1246,7 +1251,8 @@ static inline void rfx_set_down_delay(struct rfx_policy *p, bool gaming, u64 tim
 	}
 }
 
-static inline void rfx_pol_up_delay(struct rfx_policy *p, bool gaming, unsigned int demand_pct)
+static inline void rfx_pol_up_delay(struct rfx_policy *p, bool gaming,
+				    unsigned int demand_pct, u64 time)
 {
 	if (gaming) {
 		/* Instant ramp-up (0us) in gaming mode for Big/Prime cores or demand >= 20% */
@@ -1255,7 +1261,7 @@ static inline void rfx_pol_up_delay(struct rfx_policy *p, bool gaming, unsigned 
 		else
 			p->up_rate_delay_ns = (s64)250 * NSEC_PER_USEC;
 	} else {
-		bool touch = rfx_touch_active(sched_clock(), (u64)RFX_D_TOUCH_WINDOW_MS * NSEC_PER_MSEC);
+		bool touch = rfx_touch_active(time, (u64)RFX_D_TOUCH_WINDOW_MS * NSEC_PER_MSEC);
 
 		/* Daily mode: 0us on touch with demand for zero-latency UI dispatch */
 		if (touch && (p->is_little || demand_pct >= 20))
@@ -1471,7 +1477,9 @@ static unsigned int rfx_next_freq(struct rfx_cpu *rfx_c, u64 time, bool gaming)
 			       true, gaming, max_cap);
 
 	rfx_set_down_delay(p, gaming, time);
-	rfx_pol_up_delay(p, gaming, max_cap ? (unsigned int)(max_util * 100 / max_cap) : 0);
+	rfx_pol_up_delay(p, gaming,
+			 max_cap ? (unsigned int)(max_util * 100 / max_cap) : 0,
+			 time);
 
 	if (!gaming) {
 		unsigned int fmin = p->policy->min;
@@ -2194,18 +2202,23 @@ static void __init rfx_selfcheck(void)
 	WARN_ON(rfx_ema(200, 100, t, &ns, false, false, 1000) != 100);
 
 	/* Gaming: per-sample asymmetric blend, time-independent */
-	WARN_ON(rfx_ema(1000, 0, t, &ns, true, true, 1000) != 750 || ns != t);
-	WARN_ON(rfx_ema(100, 200, t, &ns, true, true, 1000) != 165);
+	WARN_ON(rfx_ema(1000, 0, t, &ns, true, true, 1000) !=
+		1000 * (100 - RFX_G_EMA_DECAY_PCT) / 100 || ns != t);
+	WARN_ON(rfx_ema(100, 200, t, &ns, true, true, 1000) !=
+		(200 * RFX_G_EMA_ATTACK_PCT +
+		 100 * (100 - RFX_G_EMA_ATTACK_PCT)) / 100);
 	WARN_ON(rfx_ema(0, 200, t, &ns, true, true, 1000) != 200);
 	ns = t - RFX_EMA_DECAY_PERIOD_NS;
-	WARN_ON(rfx_ema(1000, 0, t, &ns, true, true, 1000) != 750 || ns != t);
+	WARN_ON(rfx_ema(1000, 0, t, &ns, true, true, 1000) !=
+		1000 * (100 - RFX_G_EMA_DECAY_PCT) / 100 || ns != t);
 
 	ns = t - RFX_EMA_DECAY_PERIOD_NS;
 	WARN_ON(rfx_ema(1000, 0, t, &ns, true, false, 1000) !=
 		1000 - 1000 / RFX_EMA_DAILY_DIVISOR || ns != t);
 
 	ns = t + NSEC_PER_MSEC;
-	WARN_ON(rfx_ema(1000, 0, t, &ns, true, true, 1000) != 750);
+	WARN_ON(rfx_ema(1000, 0, t, &ns, true, true, 1000) !=
+		1000 * (100 - RFX_G_EMA_DECAY_PCT) / 100);
 
 	/* Daily zero-snap: a long quiet gap with near-zero demand collapses
 	 * the filter straight to the newest sample. */
@@ -2287,20 +2300,19 @@ static int rfx_pm_notifier(struct notifier_block *nb, unsigned long action, void
 		spin_lock_irqsave(&rfx_policy_list_lock, flags);
 		list_for_each_entry(p, &rfx_policy_list, gov_node) {
 			unsigned long pflags;
-			unsigned int min_f;
 
 			raw_spin_lock_irqsave(&p->update_lock, pflags);
-			min_f = cpufreq_driver_resolve_freq(p->policy, p->policy->min);
 			p->parked = true;
 			p->park_exit_count = 0;
-			p->pending_raw_freq = min_f;
-			p->next_freq = min_f;
 			p->down_rate_delay_ns = 0;
 			p->freq_update_delay_ns = (s64)500000 * NSEC_PER_USEC;
 			WRITE_ONCE(p->need_freq_update, true);
 			if (p->policy->fast_switch_enabled) {
-				unsigned int actual_f;
+				unsigned int min_f, actual_f;
 
+				min_f = cpufreq_driver_resolve_freq(p->policy, p->policy->min);
+				p->pending_raw_freq = min_f;
+				p->next_freq = min_f;
 				actual_f = cpufreq_driver_fast_switch(p->policy, min_f);
 				if (actual_f) {
 					p->policy->cur = actual_f;
