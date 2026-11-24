@@ -388,14 +388,14 @@ static void rfx_init_topology(void)
 
 static int rfx_ntiers(void)
 {
-	if (unlikely(!rfx_num_tiers))
+	if (unlikely(rfx_num_tiers <= 1))
 		rfx_init_topology();
 	return rfx_num_tiers;
 }
 
 static inline bool rfx_cap_is_little(unsigned long cap)
 {
-	if (unlikely(!rfx_num_tiers))
+	if (unlikely(rfx_num_tiers <= 1))
 		rfx_init_topology();
 	if (cap > (unsigned long)RFX_LITTLE_CAP_THRESHOLD)
 		return false;
@@ -406,7 +406,7 @@ static inline bool rfx_cap_is_little(unsigned long cap)
 
 static inline bool rfx_cap_is_top(unsigned long cap)
 {
-	if (unlikely(!rfx_num_tiers))
+	if (unlikely(rfx_num_tiers <= 1))
 		rfx_init_topology();
 	if (rfx_num_tiers <= 1)
 		return cap >= (unsigned long)RFX_PRIME_CAP_THRESHOLD;
@@ -415,7 +415,7 @@ static inline bool rfx_cap_is_top(unsigned long cap)
 
 static inline bool rfx_cap_is_prime(unsigned long cap)
 {
-	if (unlikely(!rfx_num_tiers))
+	if (unlikely(rfx_num_tiers <= 1))
 		rfx_init_topology();
 	if (cap < (unsigned long)896)
 		return false;
@@ -2286,15 +2286,28 @@ static int rfx_pm_notifier(struct notifier_block *nb, unsigned long action, void
 		smp_wmb();
 		spin_lock_irqsave(&rfx_policy_list_lock, flags);
 		list_for_each_entry(p, &rfx_policy_list, gov_node) {
+			unsigned long pflags;
+			unsigned int min_f;
+
+			raw_spin_lock_irqsave(&p->update_lock, pflags);
+			min_f = cpufreq_driver_resolve_freq(p->policy, p->policy->min);
 			p->parked = true;
 			p->park_exit_count = 0;
-			p->pending_raw_freq = p->policy->min;
-			p->next_freq = p->policy->min;
+			p->pending_raw_freq = min_f;
+			p->next_freq = min_f;
 			p->down_rate_delay_ns = 0;
 			p->freq_update_delay_ns = (s64)500000 * NSEC_PER_USEC;
 			WRITE_ONCE(p->need_freq_update, true);
-			if (p->policy->fast_switch_enabled)
-				cpufreq_driver_fast_switch(p->policy, p->policy->min);
+			if (p->policy->fast_switch_enabled) {
+				unsigned int actual_f;
+
+				actual_f = cpufreq_driver_fast_switch(p->policy, min_f);
+				if (actual_f) {
+					p->policy->cur = actual_f;
+					p->next_freq = actual_f;
+				}
+			}
+			raw_spin_unlock_irqrestore(&p->update_lock, pflags);
 		}
 		spin_unlock_irqrestore(&rfx_policy_list_lock, flags);
 		break;
@@ -2303,8 +2316,12 @@ static int rfx_pm_notifier(struct notifier_block *nb, unsigned long action, void
 		smp_wmb();
 		spin_lock_irqsave(&rfx_policy_list_lock, flags);
 		list_for_each_entry(p, &rfx_policy_list, gov_node) {
+			unsigned long pflags;
+
+			raw_spin_lock_irqsave(&p->update_lock, pflags);
 			p->park_exit_count = 0;
 			WRITE_ONCE(p->need_freq_update, true);
+			raw_spin_unlock_irqrestore(&p->update_lock, pflags);
 		}
 		spin_unlock_irqrestore(&rfx_policy_list_lock, flags);
 		break;
