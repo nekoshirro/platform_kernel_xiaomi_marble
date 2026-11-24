@@ -8910,18 +8910,10 @@ static const struct thermal_cooling_device_ops battery_tcd_ops = {
 static int charger_notifier_event(struct notifier_block *notifier,
 			unsigned long chg_event, void *val)
 {
-	struct battery_chg_dev *bcdev;
-	struct power_supply	*batt_psy;
+	struct battery_chg_dev *bcdev = container_of(notifier,
+						     struct battery_chg_dev,
+						     chg_nb);
 	int rc = 0;
-
-	batt_psy = power_supply_get_by_name("battery");
-	if (!batt_psy) {
-		return -EPROBE_DEFER;
-	}
-
-	bcdev = power_supply_get_drvdata(batt_psy);
-	if (!bcdev)
-		return -ENODEV;
 
 	switch (chg_event) {
 	case THERMAL_BOARD_TEMP:
