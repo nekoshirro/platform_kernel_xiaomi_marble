@@ -9155,11 +9155,14 @@ static int battery_chg_remove(struct platform_device *pdev)
 	unregister_reboot_notifier(&bcdev->reboot_notifier);
 	unregister_reboot_notifier(&bcdev->shutdown_notifier);
 #if defined(CONFIG_OF) && defined(CONFIG_DRM_PANEL)
-	if (active_panel && !IS_ERR(cookie)) {
+	cancel_delayed_work_sync(&bcdev->panel_notify_register_work);
+	if (active_panel && !IS_ERR_OR_NULL(cookie)) {
 		panel_event_notifier_unregister(cookie);
+		cookie = NULL;
 	} else {
 		printk(KERN_ERR "%s:main panel_event_notifier_unregister falt\n", __func__);
 	}
+	cancel_work_sync(&bcdev->notify_blankstate_work);
 #endif
 
 	return 0;
