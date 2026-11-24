@@ -27,9 +27,10 @@
 		srcu_read_lock_held(&wakeup_srcu))
 
 #ifdef CONFIG_BOEFFLA_WL_BLOCKER
+#include <linux/rcupdate.h>
 #include "boeffla_wl_blocker.h"
 
-char list_wl_search[LENGTH_LIST_WL_SEARCH] = {0};
+const char __rcu *wl_search_active;
 bool wl_blocker_active = false;
 bool wl_blocker_debug = false;
 
@@ -593,33 +594,48 @@ static void wakeup_source_activate(struct wakeup_source *ws)
 static bool wl_blocker_listed(struct wakeup_source *ws)
 {
 	char needle[128];
-	int length;
+	const char *search;
+	size_t length;
+	bool blocked;
 
-	if (!ws || !wl_blocker_active)
+	if (!ws || !ws->name || !rcu_access_pointer(wl_search_active))
 		return false;
 
 	/* Whole ';'-delimited token. The search string is delimited at both
 	 * ends, so ";name;" matches the first and last entry too. A bare
 	 * substring test also blocked any name contained in a longer listed
 	 * entry -- unlisted blocks that no list edit could undo. */
-	length = strlen(ws->name);
-	if (length < 1 || (size_t)length + 3 > sizeof(needle))
+	length = strnlen(ws->name, sizeof(needle) - 2);
+	if (length < 1 || length > sizeof(needle) - 3)
 		return false;	/* over-long name: fail safe, do not block */
 
-	scnprintf(needle, sizeof(needle), ";%s;", ws->name);
+	needle[0] = ';';
+	memcpy(needle + 1, ws->name, length);
+	needle[length + 1] = ';';
+	needle[length + 2] = '\0';
 
-	return strstr(list_wl_search, needle) != NULL;
+	rcu_read_lock();
+	search = rcu_dereference(wl_search_active);
+	blocked = search && strstr(search, needle) != NULL;
+	rcu_read_unlock();
+
+	return blocked;
 }
 
 // AP: Function to check if a wakelock is on the wakelock blocker list
 static bool check_for_block(struct wakeup_source *ws, bool hard)
 {
+	const char *name;
+
 	if (!ws)
 		return false;
 
+	name = ws->name ?: "(null)";
+
 	// if debug mode on, print every wakelock requested
-	if (wl_blocker_debug)
-		printk("Boeffla WL blocker: %s requested\n", ws->name);
+	if (READ_ONCE(wl_blocker_debug))
+		pr_info("Boeffla WL blocker: %s requested%s\n",
+			name, hard ? " (hard)" : "");
 
 	/* A hard event is a system wake signal (power key, wake IRQ) that must
 	 * abort an in-flight suspend. Never block one, whatever the list says. */
@@ -630,15 +646,15 @@ static bool check_for_block(struct wakeup_source *ws, bool hard)
 		return false;
 
 	// wake lock is in list, print it if debug mode on
-	if (wl_blocker_debug)
-		printk("Boeffla WL blocker: %s blocked\n", ws->name);
+	if (READ_ONCE(wl_blocker_debug))
+		pr_info("Boeffla WL blocker: %s blocked\n", name);
 
 	// if it is currently active, deactivate it immediately + log in debug mode
 	if (ws->active) {
 		wakeup_source_deactivate(ws);
 
-		if (wl_blocker_debug)
-			printk("Boeffla WL blocker: %s killed\n", ws->name);
+		if (READ_ONCE(wl_blocker_debug))
+			pr_info("Boeffla WL blocker: %s killed\n", name);
 	}
 
 	// finally block it

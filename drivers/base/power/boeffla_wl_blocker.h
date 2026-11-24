@@ -14,6 +14,12 @@
  *
  */
 
+#ifndef _BOEFFLA_WL_BLOCKER_H
+#define _BOEFFLA_WL_BLOCKER_H
+
+#include <linux/compiler.h>
+#include <linux/types.h>
+
 #define BOEFFLA_WL_BLOCKER_VERSION	"1.2.0"
 
 /*
@@ -49,3 +55,9 @@
 #define LENGTH_LIST_WL_DEFAULT			LENGTH_LIST_WL
 /* ";default;user;" -- three delimiters plus the terminator. */
 #define LENGTH_LIST_WL_SEARCH			(LENGTH_LIST_WL_DEFAULT + LENGTH_LIST_WL + 4)
+
+extern const char __rcu *wl_search_active;
+extern bool wl_blocker_active;
+extern bool wl_blocker_debug;
+
+#endif /* _BOEFFLA_WL_BLOCKER_H */

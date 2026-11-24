@@ -42,7 +42,10 @@
 #include <linux/sysfs.h>
 #include <linux/device.h>
 #include <linux/miscdevice.h>
+#include <linux/mutex.h>
 #include <linux/printk.h>
+#include <linux/rcupdate.h>
+#include <linux/string.h>
 #include "boeffla_wl_blocker.h"
 
 
@@ -50,29 +53,71 @@
 // Variables
 /*****************************************/
 
-char list_wl[LENGTH_LIST_WL] = {0};
-char list_wl_default[LENGTH_LIST_WL_DEFAULT] = {0};
-
-extern char list_wl_search[LENGTH_LIST_WL_SEARCH];
-extern bool wl_blocker_active;
-extern bool wl_blocker_debug;
+static DEFINE_MUTEX(wl_blocker_mutex);
+static char list_wl[LENGTH_LIST_WL] = {0};
+static char list_wl_default[LENGTH_LIST_WL_DEFAULT] = {0};
+static char wl_search_bufs[2][LENGTH_LIST_WL_SEARCH] = { {0}, {0} };
+static unsigned int wl_search_idx;
 
 
 /*****************************************/
 // internal functions
 /*****************************************/
 
-static void build_search_string(const char *list1, const char *list2)
+static bool list_has_entries(const char *list)
 {
-	/* Rebuilt in place, unlocked: a concurrent reader can match against a
-	 * mixed old/new string for one scnprintf(), but never reads out of
-	 * bounds. Not worth a lock in the wakeup path. */
-	scnprintf(list_wl_search, LENGTH_LIST_WL_SEARCH, ";%s;%s;", list1, list2);
+	while (*list) {
+		if (*list != ';')
+			return true;
+		list++;
+	}
+	return false;
+}
 
-	/* Either list non-empty. The old strlen(search) > 5 test measured the
-	 * delimiter-wrapped string, so a short entry (";a;;") left the blocker
-	 * off and the write silently did nothing. */
-	wl_blocker_active = list1[0] || list2[0];
+static void build_search_string(const char *list1, const char *list2, bool sync_rcu)
+{
+	unsigned int next = wl_search_idx ^ 1;
+	bool active = list_has_entries(list1) || list_has_entries(list2);
+
+	/*
+	 * Publish into an inactive ping-pong slot so lockless RCU readers in
+	 * the wakeup path never observe a half-written string or stale tail.
+	 * When neither list has entries, publish NULL so the wakeup hotpath
+	 * exits on a single rcu_access_pointer() check without scanning.
+	 */
+	if (active) {
+		scnprintf(wl_search_bufs[next], LENGTH_LIST_WL_SEARCH,
+			  ";%s;%s;", list1, list2);
+		rcu_assign_pointer(wl_search_active, wl_search_bufs[next]);
+		wl_search_idx = next;
+	} else {
+		RCU_INIT_POINTER(wl_search_active, NULL);
+	}
+	WRITE_ONCE(wl_blocker_active, active);
+
+	if (sync_rcu)
+		synchronize_rcu();
+}
+
+static ssize_t store_wl_list(char *dst, size_t cap, const char *buf, size_t n)
+{
+	size_t len = n;
+
+	while (len && (buf[len - 1] == '\n' || buf[len - 1] == '\r'))
+		len--;
+
+	/* '>=': the NUL terminator needs the last byte; reject multi-line/NUL payloads. */
+	if (len >= cap || memchr(buf, '\0', len) ||
+	    memchr(buf, '\n', len) || memchr(buf, '\r', len))
+		return -EINVAL;
+
+	mutex_lock(&wl_blocker_mutex);
+	memcpy(dst, buf, len);
+	dst[len] = '\0';
+	build_search_string(list_wl_default, list_wl, true);
+	mutex_unlock(&wl_blocker_mutex);
+
+	return n;
 }
 
 
@@ -84,8 +129,13 @@ static void build_search_string(const char *list1, const char *list2)
 static ssize_t wakelock_blocker_show(struct device *dev, struct device_attribute *attr,
 			    char *buf)
 {
-	// return list of wakelocks to be blocked
-	return scnprintf(buf, PAGE_SIZE, "%s\n", list_wl);
+	ssize_t ret;
+
+	mutex_lock(&wl_blocker_mutex);
+	ret = scnprintf(buf, PAGE_SIZE, "%s\n", list_wl);
+	mutex_unlock(&wl_blocker_mutex);
+
+	return ret;
 }
 
 
@@ -93,18 +143,7 @@ static ssize_t wakelock_blocker_show(struct device *dev, struct device_attribute
 static ssize_t wakelock_blocker_store(struct device * dev, struct device_attribute *attr,
 			     const char * buf, size_t n)
 {
-	int len = strcspn(buf, "\n");
-
-	/* '>=': the terminator below needs the last byte. */
-	if (len >= LENGTH_LIST_WL)
-		return -EINVAL;
-
-	// store user configured wakelock list and rebuild search string
-	memcpy(list_wl, buf, len);
-	list_wl[len] = '\0';
-	build_search_string(list_wl_default, list_wl);
-
-	return n;
+	return store_wl_list(list_wl, sizeof(list_wl), buf, n);
 }
 
 
@@ -112,8 +151,13 @@ static ssize_t wakelock_blocker_store(struct device * dev, struct device_attribu
 static ssize_t wakelock_blocker_default_show(struct device *dev, struct device_attribute *attr,
 			    char *buf)
 {
-	// return list of wakelocks to be blocked
-	return scnprintf(buf, PAGE_SIZE, "%s\n", list_wl_default);
+	ssize_t ret;
+
+	mutex_lock(&wl_blocker_mutex);
+	ret = scnprintf(buf, PAGE_SIZE, "%s\n", list_wl_default);
+	mutex_unlock(&wl_blocker_mutex);
+
+	return ret;
 }
 
 
@@ -121,43 +165,27 @@ static ssize_t wakelock_blocker_default_show(struct device *dev, struct device_a
 static ssize_t wakelock_blocker_default_store(struct device * dev, struct device_attribute *attr,
 			     const char * buf, size_t n)
 {
-	int len = strcspn(buf, "\n");
-
-	/* '>=': the terminator below needs the last byte. */
-	if (len >= LENGTH_LIST_WL_DEFAULT)
-		return -EINVAL;
-
-	// store default, predefined wakelock list and rebuild search string
-	memcpy(list_wl_default, buf, len);
-	list_wl_default[len] = '\0';
-	build_search_string(list_wl_default, list_wl);
-
-	return n;
+	return store_wl_list(list_wl_default, sizeof(list_wl_default), buf, n);
 }
 
 
 // show debug information of driver internals
 static ssize_t debug_show(struct device *dev, struct device_attribute *attr, char *buf)
 {
-	// return current debug status
-	return scnprintf(buf, PAGE_SIZE,
-			 "Debug status: %d\n\nUser list: %s\nDefault list: %s\n"
-			 "Search list: %s\nActive: %d\n",
-			 wl_blocker_debug, list_wl, list_wl_default,
-			 list_wl_search, wl_blocker_active);
-}
+	const char *search;
+	ssize_t ret;
 
+	mutex_lock(&wl_blocker_mutex);
+	search = rcu_dereference_protected(wl_search_active,
+					   lockdep_is_held(&wl_blocker_mutex));
+	ret = scnprintf(buf, PAGE_SIZE,
+			"Debug status: %d\n\nUser list: %s\nDefault list: %s\n"
+			"Search list: %s\nActive: %d\n",
+			READ_ONCE(wl_blocker_debug), list_wl, list_wl_default,
+			search ?: ";;;", READ_ONCE(wl_blocker_active));
+	mutex_unlock(&wl_blocker_mutex);
 
-static int parse_strtoul(const char *buf, unsigned long max, unsigned long *value)
-{
-	char *endp;
-
-	*value = simple_strtoul(skip_spaces(buf), &endp, 0);
-	endp = skip_spaces(endp);
-	if (*endp || *value > max)
-		return -EINVAL;
-
-	return 0;
+	return ret;
 }
 
 
@@ -165,19 +193,14 @@ static int parse_strtoul(const char *buf, unsigned long max, unsigned long *valu
 static ssize_t debug_store(struct device *dev, struct device_attribute *attr,
 			   const char *buf, size_t count)
 {
-	ssize_t ret = -EINVAL;
-	unsigned long val;
+	bool val;
+	int ret;
 
-	// check data and store if valid
-	ret = parse_strtoul(buf, 1, &val);
-
+	ret = kstrtobool(buf, &val);
 	if (ret)
 		return ret;
 
-	if (val)
-		wl_blocker_debug = true;
-	else
-		wl_blocker_debug = false;
+	WRITE_ONCE(wl_blocker_debug, val);
 
 	return count;
 }
@@ -215,10 +238,16 @@ static struct attribute_group boeffla_wl_blocker_control_group = {
 	.attrs = boeffla_wl_blocker_attributes,
 };
 
+static const struct attribute_group *boeffla_wl_blocker_groups[] = {
+	&boeffla_wl_blocker_control_group,
+	NULL
+};
+
 // define control device
 static struct miscdevice boeffla_wl_blocker_control_device = {
 	.minor = MISC_DYNAMIC_MINOR,
 	.name = "boeffla_wakelock_blocker",
+	.groups = boeffla_wl_blocker_groups,
 };
 
 
@@ -226,35 +255,35 @@ static struct miscdevice boeffla_wl_blocker_control_device = {
 // Driver init and exit functions
 /*****************************************/
 
-static int boeffla_wl_blocker_init(void)
+static int __init boeffla_wl_blocker_init(void)
 {
-	// register boeffla wakelock blocker control device
-	misc_register(&boeffla_wl_blocker_control_device);
-	if (sysfs_create_group(&boeffla_wl_blocker_control_device.this_device->kobj,
-				&boeffla_wl_blocker_control_group) < 0) {
-		printk("Boeffla WL blocker: failed to create sys fs object.\n");
-		return 0;
+	int ret;
+
+	BUILD_BUG_ON(sizeof(LIST_WL_DEFAULT) > LENGTH_LIST_WL_DEFAULT);
+
+	/* Initialize default list before exposing sysfs controls. */
+	strscpy(list_wl_default, LIST_WL_DEFAULT, sizeof(list_wl_default));
+	build_search_string(list_wl_default, list_wl, false);
+
+	ret = misc_register(&boeffla_wl_blocker_control_device);
+	if (ret) {
+		pr_err("Boeffla WL blocker: failed to register misc device (%d)\n",
+		       ret);
+		return ret;
 	}
 
-	// initialize default list
-	strcpy(list_wl_default, LIST_WL_DEFAULT);
-	build_search_string(list_wl_default, list_wl);
-
-	// Print debug info
-	printk("Boeffla WL blocker: driver version %s started\n", BOEFFLA_WL_BLOCKER_VERSION);
+	pr_info("Boeffla WL blocker: driver version %s started\n",
+		BOEFFLA_WL_BLOCKER_VERSION);
 
 	return 0;
 }
 
 
-static void boeffla_wl_blocker_exit(void)
+static void __exit boeffla_wl_blocker_exit(void)
 {
-	// remove boeffla wakelock blocker control device
-	sysfs_remove_group(&boeffla_wl_blocker_control_device.this_device->kobj,
-                           &boeffla_wl_blocker_control_group);
+	misc_deregister(&boeffla_wl_blocker_control_device);
 
-	// Print debug info
-	printk("Boeffla WL blocker: driver stopped\n");
+	pr_info("Boeffla WL blocker: driver stopped\n");
 }
 
 
