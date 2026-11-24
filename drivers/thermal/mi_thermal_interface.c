@@ -19,6 +19,7 @@
 #include <linux/kernfs.h>
 #include <linux/workqueue.h>
 #include <linux/power_supply.h>
+#include <linux/soc/qcom/battery_charger.h>
 #include "../base/base.h"
 
 #include "thermal_core.h"
@@ -391,7 +392,21 @@ static ssize_t
 thermal_board_sensor_temp_store(struct device *dev,
 		struct device_attribute *attr, const char *buf, size_t len)
 {
-	snprintf(board_sensor_temp, BOARD_BUFFER_SIZE, buf);
+	int val;
+	int ret;
+
+	ret = kstrtoint(buf, 10, &val);
+	if (ret)
+		return ret;
+
+	snprintf(board_sensor_temp, BOARD_BUFFER_SIZE, "%s", buf);
+
+#if IS_ENABLED(CONFIG_QTI_BATTERY_CHARGER)
+	ret = charger_notifier_call_cnain(THERMAL_BOARD_TEMP, val);
+	if (ret < 0)
+		pr_err_ratelimited("%s: failed to notify board temp (%d): %d\n",
+				   __func__, val, ret);
+#endif
 
 	return len;
 }

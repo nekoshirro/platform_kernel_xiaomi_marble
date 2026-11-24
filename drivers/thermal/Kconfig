@@ -487,6 +487,7 @@ endmenu
 config MI_THERMAL_INTERFACE
 	tristate "xiaomi thermal control interface"
 	depends on THERMAL
+	depends on QTI_BATTERY_CHARGER || !QTI_BATTERY_CHARGER
 	default n
 	help
 	  This is xiaomi thermal control interface.

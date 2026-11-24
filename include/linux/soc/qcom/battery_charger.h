@@ -61,6 +61,21 @@ static inline int unregister_hboost_event_notifier(struct notifier_block *nb)
 {
 	return -EOPNOTSUPP;
 }
+
+static inline int charger_reg_notifier(struct notifier_block *nb)
+{
+	return -EOPNOTSUPP;
+}
+
+static inline int charger_unreg_notifier(struct notifier_block *nb)
+{
+	return -EOPNOTSUPP;
+}
+
+static inline int charger_notifier_call_cnain(unsigned long event, int val)
+{
+	return -EOPNOTSUPP;
+}
 #endif
 
 #endif
