@@ -1232,4 +1232,13 @@ static inline void cpufreq_register_em_with_opp(struct cpufreq_policy *policy)
 	dev_pm_opp_of_register_em(get_cpu_device(policy->cpu),
 				  policy->related_cpus);
 }
+#if IS_ENABLED(CONFIG_CPU_FREQ_GOV_VORPAL)
+bool vorpal_is_gaming_mode(void);
+#else
+static inline bool vorpal_is_gaming_mode(void)
+{
+	return false;
+}
+#endif
+
 #endif /* _LINUX_CPUFREQ_H */
