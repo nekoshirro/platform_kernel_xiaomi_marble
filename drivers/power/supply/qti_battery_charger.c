@@ -1806,6 +1806,9 @@ static enum power_supply_property wls_props_waipio[] = {
 
 static const struct power_supply_desc wls_psy_desc_waipio = {
 	.name			= "wireless",
+#ifndef CONFIG_MI_WIRELESS
+	.no_thermal		= true,
+#endif
 	.type			= POWER_SUPPLY_TYPE_WIRELESS,
 	.properties		= wls_props_waipio,
 	.num_properties		= ARRAY_SIZE(wls_props_waipio),
